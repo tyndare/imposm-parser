@@ -95,26 +95,12 @@ class OSMParser(object):
         if self.relations_callback:
             queues_callbacks['relations'] = (multiprocessing.JoinableQueue(128),
                                              self.relations_callback)
+            
+        queues = dict([(type, q) for type, (q, c) in list(queues_callbacks.items())])
 
-        def parse_it():
-            setproctitle('imposm parser')
-            queues = dict([(type, q) for type, (q, c) in list(queues_callbacks.items())])
-            
-            parser = parser_class(self.concurrency,
-                ways_queue=queues.get('ways'),
-                coords_queue=queues.get('coords'),
-                nodes_queue=queues.get('nodes'),
-                relations_queue=queues.get('relations'),
-                marshal_elem_data=self.marshal_elem_data
-            )
-            parser.nodes_tag_filter = self.nodes_tag_filter
-            parser.ways_tag_filter = self.ways_tag_filter
-            parser.relations_tag_filter = self.relations_tag_filter
-            parser.parse(input)
-            for q in list(queues.values()):
-                q.put(None)
-            
-        proc = multiprocessing.Process(target=parse_it)
+        proc = multiprocessing.Process(target=process_parse, args=(
+            input, queues, parser_class, self.concurrency, self.marshal_elem_data,
+            self.nodes_tag_filter, self.ways_tag_filter, self.relations_tag_filter))
         proc.start()
         
         while queues_callbacks:
@@ -139,3 +125,20 @@ class OSMParser(object):
                 # to give the parser a chance to fill them up
                 time.sleep(0.001)
         proc.join()
+
+def process_parse(input, queues, parser_class, concurrency, marshal_elem_data, nodes_tag_filter, ways_tag_filter, relations_tag_filter):
+    setproctitle('imposm parser')
+    parser = parser_class(concurrency,
+        ways_queue=queues.get('ways'),
+        coords_queue=queues.get('coords'),
+        nodes_queue=queues.get('nodes'),
+        relations_queue=queues.get('relations'),
+        marshal_elem_data=marshal_elem_data
+    )
+    parser.nodes_tag_filter = nodes_tag_filter
+    parser.ways_tag_filter = ways_tag_filter
+    parser.relations_tag_filter = relations_tag_filter
+    parser.parse(input)
+    for q in list(queues.values()):
+        q.put(None)
+
